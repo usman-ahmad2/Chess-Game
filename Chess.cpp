@@ -1,0 +1,447 @@
+#include "Chess.h"
+
+// ---------------- Piece ----------------
+Piece::Piece() {
+    symbol = 'N';
+    colour = "NOT SET";
+    positionX = -1;
+    positionY = -1;
+}
+Piece::Piece(string c, char s) {
+    symbol = s;
+    colour = c;
+    positionX = -1;
+    positionY = -1;
+}
+
+// ---------------- Game ----------------
+Game::Game() {
+    isWhiteTurn = true;
+    gameOver = false;
+    lastResult = "";
+}
+
+void Game::startGame() {
+    board.initializeBoard();
+    board.setBoardWhite();
+    board.setBoardBlack();
+
+    while (!gameOver) {
+        board.displayBoard();
+
+        if (isWhiteTurn) cout << "White's turn: " << endl;
+        else cout << "Black's turn: " << endl;
+
+        string start, end;
+        cin >> start >> end;
+
+        if (start == "quit" || end == "quit") { gameOver = true; break; }
+
+        // Basic input validation
+        if (start.size() < 2 || end.size() < 2) {
+            cout << "Invalid input format. Use e.g. e2 e4" << endl;
+            continue;
+        }
+
+        int startCol = start[0] - 'a';
+        int startRow = 8 - (start[1] - '0');
+        int endCol = end[0] - 'a';
+        int endRow = 8 - (end[1] - '0');
+
+        if (startCol < 0 || startCol > 7 || startRow < 0 || startRow > 7 ||
+            endCol < 0 || endCol   > 7 || endRow < 0 || endRow   > 7) {
+            cout << "Coordinates out of bounds!" << endl;
+            continue;
+        }
+
+        Piece* piece = board.getPiece(startRow, startCol);
+
+        if (piece == nullptr) {
+            cout << "No piece at selected position!" << endl;
+            continue;
+        }
+        if (isWhiteTurn && piece->getColour() != "White") {
+            cout << "Wrong piece! Try again." << endl;
+            continue;
+        }
+        if (!isWhiteTurn && piece->getColour() != "Black") {
+            cout << "Wrong piece! Try again." << endl;
+            continue;
+        }
+
+        if (Game::tryMove(startRow, startCol, endRow, endCol)) {}
+        else {
+            cout << "Invalid move! Try again." << endl;
+        }
+    }
+}
+bool Game::tryMove(int r1, int c1, int r2, int c2) {
+    Piece* pc = board.getPiece(r1, c1);
+    if (!pc) return false;
+    if (isWhiteTurn && pc->getColour() != "White") return false;
+    if (!isWhiteTurn && pc->getColour() != "Black") return false;
+    if (!pc->isValidMove(r1, c1, r2, c2, board)) return false;
+
+    Piece* captured = board.getPiece(r2, c2);
+    board.setPiece(r2, c2, pc);
+    board.setPiece(r1, c1, nullptr);
+    pc->setPosition(r2, c2);
+    bool movePutsOwnKingInCheck = isKingInCheck(isWhiteTurn);
+    // --- Undo simulation ---
+    board.setPiece(r1, c1, pc);
+    board.setPiece(r2, c2, captured);
+    pc->setPosition(r1, c1);
+
+    if (movePutsOwnKingInCheck) return false;
+
+    // --- Execute real move ---
+    board.movePiece(r1, c1, r2, c2);
+    isWhiteTurn = !isWhiteTurn;
+
+    // --- Check game state for next player ---
+    bool nextInCheck = isKingInCheck(isWhiteTurn);
+    bool nextHasMoves = hasAnyLegalMove(isWhiteTurn);
+
+    if (!nextHasMoves) {
+        gameOver = true;
+        if (nextInCheck)
+            lastResult = isWhiteTurn ? "Black wins by Checkmate!" : "White wins by Checkmate!";
+        else
+            lastResult = "Stalemate! It's a draw.";
+    }
+    else if (nextInCheck) {
+        lastResult = isWhiteTurn ? "White is in Check!" : "Black is in Check!";
+    }
+    else {
+        lastResult = "";
+    }
+    return true;
+}
+bool Game::isKingInCheck(bool whiteKing) {
+    string kingColour = whiteKing ? "White" : "Black";
+    char   kingSymbol = whiteKing ? 'K' : 'k';
+    // Find the king
+    int kingRow = -1, kingCol = -1;
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++) {
+            Piece* p = board.getPiece(r, c);
+            if (p && p->getSymbol() == kingSymbol) {
+                kingRow = r; kingCol = c;
+            }
+        }
+    if (kingRow == -1) return false;
+
+    // Check if any enemy piece can attack the king's square
+    return isSquareAttacked(kingRow, kingCol, !whiteKing);
+}
+
+bool Game::isSquareAttacked(int row, int col, bool byWhite) {
+    string attackerColour = byWhite ? "White" : "Black";
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++) {
+            Piece* p = board.getPiece(r, c);
+            if (p && p->getColour() == attackerColour)
+                if (p->isValidMove(r, c, row, col, board))
+                    return true;
+        }
+    return false;
+}
+
+bool Game::hasAnyLegalMove(bool forWhite) {
+    string colour = forWhite ? "White" : "Black";
+
+    for (int r1 = 0; r1 < 8; r1++)
+        for (int c1 = 0; c1 < 8; c1++) {
+            Piece* p = board.getPiece(r1, c1);
+            if (!p || p->getColour() != colour) continue;
+
+            for (int r2 = 0; r2 < 8; r2++)
+                for (int c2 = 0; c2 < 8; c2++) {
+                    if (!p->isValidMove(r1, c1, r2, c2, board)) continue;
+
+                    Piece* captured = board.getPiece(r2, c2);
+
+                    board.setPiece(r2, c2, p);
+                    board.setPiece(r1, c1, nullptr);
+                    p->setPosition(r2, c2);
+
+                    bool safe = !isKingInCheck(forWhite);
+
+                    // --- full undo ---
+                    board.setPiece(r1, c1, p);
+                    board.setPiece(r2, c2, captured);   // restores captured piece
+                    p->setPosition(r1, c1);
+
+                    if (safe) return true;   // found at least one legal move
+                }
+        }
+    return false;   // no legal move = checkmate or stalemate
+}
+
+// ---------------- Board ----------------
+Board::Board() { initializeBoard(); }
+
+Board::~Board() {
+    for (int i = 0; i < 8; i++)
+        for (int j = 0; j < 8; j++)
+            if (grid[i][j]) { delete grid[i][j]; grid[i][j] = nullptr; }
+}
+
+void Board::setPiece(int x, int y, Piece* p) {
+    grid[x][y] = p;
+}
+
+Piece* Board::getPiece(int x, int y) {
+    if (x < 0 || x >= 8 || y < 0 || y >= 8) return nullptr;
+    return grid[x][y];
+}
+
+void Board::initializeBoard() {
+    for (int i = 0; i < 8; i++)
+        for (int j = 0; j < 8; j++)
+            grid[i][j] = nullptr;
+}
+
+void Board::setBoardWhite() {
+    grid[7][0] = new Rook("White");
+    grid[7][1] = new Knight("White");
+    grid[7][2] = new Bishop("White");
+    grid[7][3] = new Queen("White");
+    grid[7][4] = new King("White");
+    grid[7][5] = new Bishop("White");
+    grid[7][6] = new Knight("White");
+    grid[7][7] = new Rook("White");
+    for (int j = 0; j < 8; j++)
+        grid[6][j] = new Pawn("White");
+
+    // set positions
+    for (int j = 0; j < 8; j++) {
+        grid[7][j]->setPosition(7, j);
+        grid[6][j]->setPosition(6, j);
+    }
+}
+
+void Board::setBoardBlack() {
+    grid[0][0] = new Rook("Black");
+    grid[0][1] = new Knight("Black");
+    grid[0][2] = new Bishop("Black");
+    grid[0][3] = new Queen("Black");
+    grid[0][4] = new King("Black");
+    grid[0][5] = new Bishop("Black");
+    grid[0][6] = new Knight("Black");
+    grid[0][7] = new Rook("Black");
+    for (int j = 0; j < 8; j++) grid[1][j] = new Pawn("Black");
+
+    for (int j = 0; j < 8; j++) {
+        grid[0][j]->setPosition(0, j);
+        grid[1][j]->setPosition(1, j);
+    }
+}
+
+void Board::displayBoard() {
+    cout << endl;
+    for (int i = 0; i < 8; i++) {
+        cout << "  +---+---+---+---+---+---+---+---+" << endl;
+        cout << 8 - i << " ";
+        for (int j = 0; j < 8; j++) {
+            char s = (grid[i][j] == nullptr) ? ' ' : grid[i][j]->getSymbol();
+            cout << "| " << s << " ";
+        }
+        cout << "|" << endl;
+    }
+    cout << "  +---+---+---+---+---+---+---+---+" << endl;
+    cout << "    a   b   c   d   e   f   g   h" << endl << endl;
+}
+
+void Board::movePiece(int startX, int startY, int endX, int endY) {
+    if (startX < 0 || startX >= 8 || startY < 0 || startY >= 8 ||
+        endX < 0 || endX >= 8 || endY < 0 || endY >= 8) return;
+
+    Piece* movingPiece = grid[startX][startY];
+    if (movingPiece == nullptr) return;
+
+    if (grid[endX][endY] != nullptr &&
+        grid[endX][endY]->getColour() == movingPiece->getColour()) return;
+
+    if (grid[endX][endY] != nullptr) delete grid[endX][endY];
+
+    grid[endX][endY] = movingPiece;
+    grid[startX][startY] = nullptr;
+    movingPiece->setPosition(endX, endY);
+    // Promotion
+    if (movingPiece->getSymbol() == 'P' && endX == 0) {
+        delete grid[endX][endY];
+        grid[endX][endY] = new Queen("White");
+        grid[endX][endY]->setPosition(endX, endY);
+    }
+    else if (movingPiece->getSymbol() == 'p' && endX == 7) {
+        delete grid[endX][endY];
+        grid[endX][endY] = new Queen("Black");
+        grid[endX][endY]->setPosition(endX, endY);
+    }
+}
+
+/*==================================================================
+ NOTE: In grid[x][y], x = row (0 = top / Black side), y = column.
+       So vertical movement changes X, horizontal movement changes Y.
+===================================================================*/
+
+// ---------------- King ----------------
+King::King() : Piece() {}
+King::King(string c) : Piece(c, (c == "White") ? 'K' : 'k') {}
+string King::getColour() { return colour; }
+int King::getPositionX() { return positionX; }
+int King::getPositionY() { return positionY; }
+void King::setPosition(int x, int y) { positionX = x; positionY = y; }
+char King::getSymbol() { return symbol; }
+bool King::isValidMove(int startX, int startY, int endX, int endY, Board& board) {
+    int dx = abs(endX - startX);
+    int dy = abs(endY - startY);
+    if (dx == 0 && dy == 0) return false;
+    if (dx > 1 || dy > 1) return false;
+    Piece* target = board.getPiece(endX, endY);
+    if (target != nullptr && target->getColour() == this->colour) return false;
+    return true;
+}
+
+// ---------------- Queen ----------------
+Queen::Queen() : Piece() {}
+Queen::Queen(string c) : Piece(c, (c == "White") ? 'Q' : 'q') {}
+string Queen::getColour() { return colour; }
+int Queen::getPositionX() { return positionX; }
+int Queen::getPositionY() { return positionY; }
+void Queen::setPosition(int x, int y) { positionX = x; positionY = y; }
+char Queen::getSymbol() { return symbol; }
+bool Queen::isValidMove(int startX, int startY, int endX, int endY, Board& board) {
+    int dx = endX - startX;
+    int dy = endY - startY;
+    if (dx == 0 && dy == 0) return false;
+
+    // Must be straight line OR diagonal
+    bool straight = (dx == 0 || dy == 0);
+    bool diagonal = (abs(dx) == abs(dy));
+    if (!straight && !diagonal) return false;
+
+    int stepX = (dx == 0) ? 0 : (dx > 0 ? 1 : -1);
+    int stepY = (dy == 0) ? 0 : (dy > 0 ? 1 : -1);
+
+    int x = startX + stepX, y = startY + stepY;
+    while (x != endX || y != endY) {
+        if (board.getPiece(x, y) != nullptr) return false; // path blocked
+        x += stepX; y += stepY;
+    }
+    Piece* target = board.getPiece(endX, endY);
+    if (target != nullptr && target->getColour() == this->colour) return false;
+    return true;
+}
+
+// ---------------- Rook ----------------
+Rook::Rook() : Piece() {}
+Rook::Rook(string c) : Piece(c, (c == "White") ? 'R' : 'r') {}
+string Rook::getColour() { return colour; }
+int Rook::getPositionX() { return positionX; }
+int Rook::getPositionY() { return positionY; }
+void Rook::setPosition(int x, int y) { positionX = x; positionY = y; }
+char Rook::getSymbol() { return symbol; }
+bool Rook::isValidMove(int startX, int startY, int endX, int endY, Board& board) {
+    int dx = endX - startX;
+    int dy = endY - startY;
+    if (dx == 0 && dy == 0) return false;
+    if (dx != 0 && dy != 0) return false; // must be straight
+
+    int stepX = (dx == 0) ? 0 : (dx > 0 ? 1 : -1);
+    int stepY = (dy == 0) ? 0 : (dy > 0 ? 1 : -1);
+
+    int x = startX + stepX, y = startY + stepY;
+    while (x != endX || y != endY) {
+        if (board.getPiece(x, y) != nullptr) return false;
+        x += stepX; y += stepY;
+    }
+    Piece* target = board.getPiece(endX, endY);
+    if (target != nullptr && target->getColour() == this->colour) return false;
+    return true;
+}
+
+// ---------------- Bishop ----------------
+Bishop::Bishop() : Piece() {}
+Bishop::Bishop(string c) : Piece(c, (c == "White") ? 'B' : 'b') {}
+string Bishop::getColour() { return colour; }
+int Bishop::getPositionX() { return positionX; }
+int Bishop::getPositionY() { return positionY; }
+void Bishop::setPosition(int x, int y) { positionX = x; positionY = y; }
+char Bishop::getSymbol() { return symbol; }
+bool Bishop::isValidMove(int startX, int startY, int endX, int endY, Board& board) {
+    int dx = endX - startX;
+    int dy = endY - startY;
+    if (dx == 0 && dy == 0) return false;
+    if (abs(dx) != abs(dy)) return false; // must be diagonal
+
+    int stepX = (dx > 0 ? 1 : -1);
+    int stepY = (dy > 0 ? 1 : -1);
+
+    int x = startX + stepX, y = startY + stepY;
+    while (x != endX) {
+        if (board.getPiece(x, y) != nullptr) return false;
+        x += stepX; y += stepY;
+    }
+    Piece* target = board.getPiece(endX, endY);
+    if (target != nullptr && target->getColour() == this->colour) return false;
+    return true;
+}
+
+// ---------------- Knight ----------------
+Knight::Knight() : Piece() {}
+Knight::Knight(string c) : Piece(c, (c == "White") ? 'N' : 'n') {}
+string Knight::getColour() { return colour; }
+int Knight::getPositionX() { return positionX; }
+int Knight::getPositionY() { return positionY; }
+void Knight::setPosition(int x, int y) { positionX = x; positionY = y; }
+char Knight::getSymbol() { return symbol; }
+bool Knight::isValidMove(int startX, int startY, int endX, int endY, Board& board) {
+    int dx = abs(endX - startX);
+    int dy = abs(endY - startY);
+    // L-shape: (2,1) or (1,2)
+    if (!((dx == 2 && dy == 1) || (dx == 1 && dy == 2))) return false;
+    Piece* target = board.getPiece(endX, endY);
+    if (target != nullptr && target->getColour() == this->colour) return false;
+    return true; // Knights jump over pieces
+}
+
+// ---------------- Pawn ----------------
+Pawn::Pawn() : Piece() {}
+Pawn::Pawn(string c) : Piece(c, (c == "White") ? 'P' : 'p') {}
+string Pawn::getColour() { return colour; }
+int Pawn::getPositionX() { return positionX; }
+int Pawn::getPositionY() { return positionY; }
+void Pawn::setPosition(int x, int y) { positionX = x; positionY = y; }
+char Pawn::getSymbol() { return symbol; }
+bool Pawn::isValidMove(int startX, int startY, int endX, int endY, Board& board) {
+    int direction = (colour == "White") ? -1 : 1;
+    int startRow = (colour == "White") ? 6 : 1;
+
+    int dx = endX - startX;
+    int dy = endY - startY;
+
+    Piece* target = board.getPiece(endX, endY);
+
+    // Forward move by 1 (must be empty)
+    if (dy == 0 && dx == direction && target == nullptr) return true;
+
+    // Forward move by 2 from starting row (both squares empty)
+    if (dy == 0 && dx == 2 * direction && startX == startRow &&
+        target == nullptr &&
+        board.getPiece(startX + direction, startY) == nullptr) return true;
+
+    // Diagonal capture
+    if (abs(dy) == 1 && dx == direction &&
+        target != nullptr && target->getColour() != this->colour) return true;
+    // Allow promotion moves
+    if (abs(dy) <= 1 && dx == direction) {
+        bool isPromotionRank = (colour == "White" && endX == 0) || (colour == "Black" && endX == 7);
+        if (isPromotionRank) {
+            if (dy == 0 && target == nullptr) return true;                    // forward promote
+            if (abs(dy) == 1 && target != nullptr && target->getColour() != colour) return true; // capture promote
+        }
+    }
+    return false;
+}
