@@ -39,10 +39,15 @@ This project demonstrates strong OOP principles:
 
 Chess-Game/
 ├── main.cpp          # SFML Graphical Interface
+
 ├── class.h           # Class declarations
+
 ├── class.cpp         # Class implementations
+
 ├── Chess.h           # Header (if separate)
+
 ├── pieces.png        # Chess pieces sprite sheet
+
 └── README.md
 
 🎯 Future Improvements
